@@ -70,6 +70,10 @@ library(DESeq2)
 #   assay:    each row is a gene and each column a patient.
 #   metadata: each row is a patient and the single column is a grouping factor.
 # Therefore, the rows in metadata must match the columns in countData in both number and order!
+#
+# Basically, what this function does is say "here is a bunch of patients with their genome data. 
+# Here is a grouping factor (could be age, could be ERB22+ expression, whatever). What patterns 
+# can be see in their genome data from this grouping factor?"
 dds <- DESeqDataSetFromMatrix(countData = assay,
                               colData = metadata,
                               design = ~ ERBB2_Amp)
