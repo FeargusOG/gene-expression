@@ -67,6 +67,9 @@ if (!requireNamespace("DESeq2", quietly = TRUE))
 library(DESeq2)
 
 # differential expression analysis.
+#   assay:    each row is a gene and each column a patient.
+#   metadata: each row is a patient and the single column is a grouping factor.
+# Therefore, the rows in metadata must match the columns in countData in both number and order!
 dds <- DESeqDataSetFromMatrix(countData = assay,
                               colData = metadata,
                               design = ~ ERBB2_Amp)
