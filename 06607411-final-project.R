@@ -118,6 +118,14 @@ top_genes <- res[order(res$padj)[1:10], ]
 print(top_genes)
 
 # 10. Perform a Pathway Enrichment Analysis
+## So from our above DESeq analysis, we have found a bunch of genes that are
+## either over or under expressed. Now with enrichment analysis we can determine
+## what biological processes are invovled in these genes and how statistically
+## significant the results are. For example, ERBB2 amplification might cause a
+## bunch of other genes related to the cell cycle to become overexpressed. This 
+## enrichment analysis would say "we're seeing a lot of cell cycle processes
+## being impacted in patients with ERBB2 amplification; more than would be
+## statistically likely by chance."
 ensure_package("clusterProfiler")
 library(clusterProfiler)
 ensure_package("org.Hs.eg.db")
