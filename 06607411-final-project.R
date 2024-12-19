@@ -16,14 +16,14 @@ library(tidyr)
 
 # 3. Read the RNA-seq file: data_mrna_seq_v2_rsem.txt
 data_rnaseq <- read.delim("brca_tcga_pan_can_atlas_2018/data_mrna_seq_v2_rsem.txt")
-
+print(data_rnaseq[5,5])
 # 4. Read the Patient Data file: data_clinical_patient.txt
 ## Skip first 4 rows as they don't contain observations.
 data_patient <- read.delim("brca_tcga_pan_can_atlas_2018/data_clinical_patient.txt", skip = 4)
-
+print(head(data_patient))
 # 5. Read the Copy Number Aberrations Data: data_cna.txt
 data_cna <- read.delim("brca_tcga_pan_can_atlas_2018/data_cna.txt")
-
+print(head(data_cna))
 # 6. Match the RNA-seq patient ids with the CNA ids and the Patient Data ids.
 
 ## In both data_rnaseq and data_cna the patient IDs are formatte with dots:
@@ -77,8 +77,8 @@ colnames(metadata) <- c(ERBB2_Amp_Col)
 assay[is.na(assay)] <- 0  # Replace NA values with zeros
 assay[assay < 0] <- 0     # Set negative values to zero
 
-## Filter out genes with low expression
-## TODO Why these numbers?? Justify....
+## Filter out genes with low expression or expressed in few samples; this
+## protects our analysis from spurious results due to noise etc.
 smallest_group_size <- 3
 keep <- rowSums(assay >= 10) >= smallest_group_size
 assay <- assay[keep, ]
@@ -113,8 +113,11 @@ dds <- DESeq(dds, parallel = TRUE)
 res <- results(dds)
 
 # 9. Obtain Differentially Expressed Genes
-## Display top 10 differentially expressed genes by adjusted p-value
-top_genes <- res[order(res$padj)[1:10], ]
+## Display top 10 differentially expressed genes by Fold Change.
+## The genes listed will have either a positive or negative value for 
+## `log2FoldChange` depending on whether they are up-regulated or 
+## down-regulated in the presence of ERBB2+, respectively.
+top_genes <- res[order(abs(res$log2FoldChange), decreasing = TRUE)[1:10],]
 print(top_genes)
 
 # 10. Perform a Pathway Enrichment Analysis
@@ -133,8 +136,10 @@ library(org.Hs.eg.db)
 ensure_package("enrichplot")
 library(enrichplot)
 
-## TODO Why this number?? p-value?
-res_sig = res[res$padj<0.05,]
+## Use the standard significance threshold to test the Benjamini-Hochberg
+## adjusted p-values.
+SIGNIFICANCE_LEVEL <- 0.05
+res_sig = res[res$padj < SIGNIFICANCE_LEVEL,]
 DE_over = rownames(res_sig[res_sig$log2FoldChange>0,])
 DE_under = rownames(res_sig[res_sig$log2FoldChange<0,])
 
@@ -144,35 +149,33 @@ go_results_over = enrichGO(
   gene          = DE_over,
   OrgDb         = org.Hs.eg.db,
   keyType       = "SYMBOL",
-  ont           = "BP", # TODO why not use default MF
-  pAdjustMethod = "BH", # TODO This is the default... can remove.
-  pvalueCutoff  = 0.05, # TODO This is the default... can remove.
-  qvalueCutoff  = 0.05 # TODO Why not use default 0.2?
+  ont           = "BP", # Biological Process
+  qvalueCutoff  = SIGNIFICANCE_LEVEL # Use a stricter threshold than 0.2 to 
+                                     # provide more confidence in our results.
 )
-print(head(go_results_over))
 
 ### Find genes that are under-expressed in ERBB2 amplified patients.
 go_results_under = enrichGO(
   gene          = DE_under,
   OrgDb         = org.Hs.eg.db,
   keyType       = "SYMBOL",  
-  ont           = "BP", # TODO why not use default MF
-  pAdjustMethod = "BH", # TODO This is the default... can remove.
-  pvalueCutoff  = 0.05, # TODO This is the default... can remove.
-  qvalueCutoff  = 0.05 # TODO Why not use default 0.2?
+  ont           = "BP",
+  qvalueCutoff  = SIGNIFICANCE_LEVEL
 )
 
+print(head(go_results_over))
 print(head(go_results_under))
 
 ### Plot results of GO enrichment analysis
-dotplot(go_results_over, showCategory=10) + 
+dotplot(go_results_over) + 
   ggtitle("Gene Ontology Enrichment Over Expressed")
 
-dotplot(go_results_under, showCategory=10) + 
+dotplot(go_results_under) + 
   ggtitle("Gene Ontology Enrichment Under Expressed")
 
 ## KEGG Pathway Enrichment Analysis
-### Map symbol to entrez for Reactome and Keggs
+### Map gene symbol to gene entrez ID. 
+### This is necessary for Reactome and Keggs.
 gene_entrez_over <- bitr(
   DE_over,
   fromType = "SYMBOL",
@@ -187,29 +190,24 @@ gene_entrez_under <- bitr(
   OrgDb    = org.Hs.eg.db
 )
 
+### defaults to 'hsa' for organism i.e. home sapien
 kegg_results_over =  enrichKEGG(
   gene          = gene_entrez_over[,2],
-  organism      = "human",   
-  pAdjustMethod = "BH",
-  pvalueCutoff  = 0.05,
-  qvalueCutoff  = 0.05
+  qvalueCutoff  = SIGNIFICANCE_LEVEL
 )
 
 kegg_results_under =  enrichKEGG(
   gene          = gene_entrez_under[,2],
-  organism      = "human",   
-  pAdjustMethod = "BH",
-  pvalueCutoff  = 0.05,
-  qvalueCutoff  = 0.05
+  qvalueCutoff  = SIGNIFICANCE_LEVEL
 )
 
 print(head(kegg_results_over))
 print(head(kegg_results_under))
 
 ### Plot results of KEGG pathway enrichment analysis
-dotplot(kegg_results_over, showCategory=10) + 
+dotplot(kegg_results_over) + 
   ggtitle("Kegg Pathway Enrichment Over Expressed")
-dotplot(kegg_results_under, showCategory=10) + 
+dotplot(kegg_results_under) + 
   ggtitle("Kegg Pathway Enrichment Under Expressed")
 
 ## Reactome Pathway Enrichment Analysis
@@ -218,20 +216,15 @@ library(ReactomePA)
 ensure_package("pathview")
 library(pathview)
 
+### defaults to 'human' for organism
 reactome_results_over =  enrichPathway(
   gene          = gene_entrez_over[,2],
-  organism      = "human",   
-  pAdjustMethod = "BH",
-  pvalueCutoff  = 0.05,
-  qvalueCutoff  = 0.05,
+  qvalueCutoff  = SIGNIFICANCE_LEVEL,
 )
 
 reactome_results_under =  enrichPathway(
   gene          = gene_entrez_under[,2],
-  organism      = "human",   
-  pAdjustMethod = "BH",
-  pvalueCutoff  = 0.05,
-  qvalueCutoff  = 0.05,
+  qvalueCutoff  = SIGNIFICANCE_LEVEL,
 )
 
 print(head(reactome_results_over))
@@ -243,28 +236,190 @@ dotplot(reactome_results_over, showCategory=10) +
 dotplot(reactome_results_under, showCategory=10) + 
   ggtitle("Reactome Pathway Enrichment Under Expressed")
 
+### TREE PLOTS
+go_results_over_pw = pairwise_termsim(go_results_over)
+treeplot(go_results_over_pw)+ ggtitle("GO Enrichment Over Expressed")
+
 go_results_under_pw = pairwise_termsim(go_results_under)
 treeplot(go_results_under_pw)+ ggtitle("GO Enrichment Under Expressed")
 
+kegg_results_over_pw = pairwise_termsim(kegg_results_over)
+treeplot(kegg_results_over_pw)+ ggtitle("KEGG Enrichment Over Expressed")
+
 kegg_results_under_pw = pairwise_termsim(kegg_results_under)
 treeplot(kegg_results_under_pw)+ ggtitle("KEGG Enrichment Under Expressed")
+
+reactome_results_over_pw = pairwise_termsim(reactome_results_over)
+treeplot(reactome_results_over_pw)+ ggtitle("Reactome Enrichment Over Expressed")
+
+reactome_results_under_pw = pairwise_termsim(reactome_results_under)
+treeplot(reactome_results_under_pw)+ ggtitle("Reactome Enrichment Under Expressed")
+
+# # Extract similarity matrix as a data frame
+# similarity_matrix <- reactome_results_under_pw@termsim
+# similarity_df <- as.data.frame(as.table(similarity_matrix))
+# # Filter for significant pathway relationships (e.g., similarity > 0.5)
+# significant_relationships <- subset(similarity_df, Freq > 0.5)
+# print(significant_relationships)
 
 # 11. Get the variance stabilised transformed expression values.
 vsd <- vst(dds)
 
 # 12. With the vst values obtain a PCA plot and a heatmap.
-## PCA Plot
-plotPCA(vsd, intgroup = c(ERBB2_Amp_Col))
+## 12.1 PCA Plot
+pcaData <- plotPCA(vsd, intgroup = c(ERBB2_Amp_Col), returnData = TRUE)
+## Creating a factor here allows for a binary colour legend
+pcaData$ERBB2_Amp <- factor(pcaData$ERBB2_Amp, 
+                            levels = c(0, 1), 
+                            labels = c("ERBB2-", "ERBB2+"))
 
-## Generate heatmap for top differentially expressed genes
+ggplot(pcaData, aes(PC1, PC2, color = ERBB2_Amp)) +
+  geom_point(size = 3) +
+  scale_color_manual(values = c("darkblue", "red")) +
+  labs(color = "ERBB2+/-") +
+  ggtitle("PCA of DEG for ERBB2 Amplification, Variance-Stabilised Data") +
+  xlab("Principal Component 1") +
+  ylab("Principal Component 2")
+
+## 12.2 Generate heatmap for top differentially expressed genes
 ensure_package("pheatmap")
 library(pheatmap)
 
+# # Order genes by absolute log2 fold change
+# top_DE <- order(abs(res$log2FoldChange), decreasing = TRUE)
+# vsd_DE <- assay(vsd)[top_DE[1:20],]
+
+# Order genes by adjusted p-value (offers better clustering...)
 top_DE <- order(res$padj)
 vsd_DE <- assay(vsd)[top_DE[1:20],]
 
-annotation_col <- data.frame(ERBB2_Amp = as.matrix(metadata[, 1]))
+## Again, a factor allows the legend to be binary, not a gradient
+annotation_col <- data.frame(ERBB2_Amp = factor(as.matrix(metadata[, 1]), 
+                                                levels = c(0, 1), 
+                                                labels = c("ERBB2-", "ERBB2+")))
+
+# Define the annotation colours for ERBB2_Amp to match the PCA chart above.
+annotation_colors <- list(
+  ERBB2_Amp = c("ERBB2-" = "darkblue", "ERBB2+" = "red")
+)
+
 rownames(annotation_col) <- colnames(vsd)
 
-pheatmap(vsd_DE, cluster_rows = TRUE, cluster_cols = TRUE, scale = "row",
-         show_colnames = FALSE, show_rownames = TRUE, annotation_col = annotation_col)
+pheatmap(vsd_DE, 
+         cluster_rows = TRUE, 
+         cluster_cols = TRUE, 
+         scale = "row",
+         show_colnames = FALSE, 
+         show_rownames = TRUE, 
+         annotation_col = annotation_col,
+         annotation_colors = annotation_colors)
+
+# 13. With the vst values of the DE genes generate an overall survival model using the glmnet package.
+## TODO lets see if this aligns with this paper: "Delving into the Heterogeneity of Different Breast 
+## Cancer Subtypes and the Prognostic Models Utilizing scRNA-Seq and Bulk RNA-Seq"
+
+# SOURCES
+## https://glmnet.stanford.edu/articles/Coxnet.html
+## https://bookdown.org/staedler_n/highdimstats/survival-analysis.html#regularized-cox-regression
+
+library(glmnet)
+
+### SAMPLE START
+library(survival)
+data(CoxExample)
+x <- CoxExample$x
+y <- CoxExample$y
+y[1:5, ]
+fit <- glmnet(x, y, family = "cox")
+plot(fit)
+### SAMPLE END
+
+
+# Extract the assay data (matrix of vst values)
+vsd_matrix <- assay(vsd)
+# Transpose the matrix to have patients as rows and genes as columns
+X_vsd <- t(vsd_matrix)
+
+# Standardise IDs in the vsd dataset
+vsd_rownames <- rownames(X_vsd) # Extract row names (patient IDs) from vsd
+vsd_rownames <- sub("\\.\\d+$", "", vsd_rownames) # Remove trailing ".01"
+vsd_rownames <- gsub("\\.", "-", vsd_rownames) # Replace '.' with '-'
+
+# Update column names in the vsd object
+rownames(X_vsd) <- vsd_rownames
+
+# Now do similar preproccessing for the patient data.
+# Set the PATIENT_ID column as the rownames
+Y_patient <- NULL
+Y_patient <- data.frame(
+  patient_id = data_patient$PATIENT_ID,
+  time = data_patient$OS_MONTHS,
+  status = data_patient$OS_STATUS
+)
+rownames(Y_patient) <- Y_patient$patient_id
+
+# Drop the patient_id column
+Y_patient$patient_id <- NULL
+# Ensure the OS_MONTHS column is numeric and > 0
+Y_patient$time <- as.numeric(Y_patient$time)
+Y_patient <- Y_patient[Y_patient$time > 0,]
+# Conver the OS_STATUS to numeric 1 or 0
+Y_patient$status <- ifelse(Y_patient$status == "1:DECEASED", 1, 
+                           ifelse(Y_patient$status == "0:LIVING", 0, NA))
+
+# The patients in each dataset don't match perfectly;
+# Find the common rownames between X_vsd and Y_patient
+common_rownames <- intersect(rownames(X_vsd), rownames(Y_patient))
+
+# Subset X_vsd and Y_patient to only include rows with common rownames
+X_vsd <- X_vsd[common_rownames, , drop = FALSE]
+Y_patient <- Y_patient[common_rownames, , drop = FALSE]
+Y_surv <- Surv(time = Y_patient$time, event = Y_patient$status)
+
+
+de_fit <- glmnet(X_vsd, Y_surv, family = "cox")
+plot(de_fit)
+
+
+set.seed(1)
+de_cvfit <- cv.glmnet(X_vsd, Y_surv, family = "cox", type.measure = "C")
+plot(de_cvfit)
+
+
+
+
+#### TOP GENES
+# Extract the rownames (gene IDs) of significant genes
+sig_genes <- rownames(res_sig)
+
+# Subset the vst matrix for only significant genes
+vsd_matrix_sig <- vsd_matrix[sig_genes, ]
+
+# Transpose the matrix to have patients as rows and genes as columns
+X_vsd_sig <- t(vsd_matrix_sig)
+
+# Standardise IDs in the vsd dataset
+vsd_sig_rownames <- rownames(X_vsd_sig) # Extract row names (patient IDs) from vsd
+vsd_sig_rownames <- sub("\\.\\d+$", "", vsd_sig_rownames) # Remove trailing ".01"
+vsd_sig_rownames <- gsub("\\.", "-", vsd_sig_rownames) # Replace '.' with '-'
+
+# Update column names in the vsd object
+rownames(X_vsd_sig) <- vsd_sig_rownames
+X_vsd_sig <- X_vsd_sig[common_rownames, , drop = FALSE]
+
+de_sig_fit <- glmnet(X_vsd_sig, Y_surv, family = "cox")
+plot(de_sig_fit)
+
+
+set.seed(1)
+de_sig_cvfit <- cv.glmnet(X_vsd_sig, Y_surv, family = "cox", type.measure = "C")
+plot(de_sig_cvfit)
+
+# Optimal lambda
+best_lambda <- de_sig_cvfit$lambda.min
+
+# Coefficients at optimal lambda
+coef(de_sig_cvfit, s = "lambda.min")
+
+plot(survival::survfit(de_sig_fit, s = 0.05, x = X_vsd_sig, y = Y_surv))
+
