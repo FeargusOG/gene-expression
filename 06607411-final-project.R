@@ -7,6 +7,7 @@ ensure_package <- function(pkg) {
 
 library(dplyr)
 library(tidyr)
+library(ggplot2)
 
 # 1. Download the dataset on: https://www.cbioportal.org/study/summary?id=brca_tcga_pan_can_atlas_2018
 ## Performed outside of this script....
@@ -323,34 +324,35 @@ pheatmap(vsd_DE,
 ## https://bookdown.org/staedler_n/highdimstats/survival-analysis.html#regularized-cox-regression
 
 library(glmnet)
-
-### SAMPLE START
 library(survival)
-data(CoxExample)
-x <- CoxExample$x
-y <- CoxExample$y
-y[1:5, ]
-fit <- glmnet(x, y, family = "cox")
-plot(fit)
-### SAMPLE END
 
+##
+## Preprocessing for X
+##
+# Extract the rownames (gene IDs) of significant genes
+sig_genes <- rownames(res_sig)
 
 # Extract the assay data (matrix of vst values)
 vsd_matrix <- assay(vsd)
+
+# Subset the vst matrix for only significant genes
+vsd_matrix_sig <- vsd_matrix[sig_genes, ]
+
 # Transpose the matrix to have patients as rows and genes as columns
-X_vsd <- t(vsd_matrix)
+X_vsd_sig <- t(vsd_matrix_sig)
 
 # Standardise IDs in the vsd dataset
-vsd_rownames <- rownames(X_vsd) # Extract row names (patient IDs) from vsd
-vsd_rownames <- sub("\\.\\d+$", "", vsd_rownames) # Remove trailing ".01"
-vsd_rownames <- gsub("\\.", "-", vsd_rownames) # Replace '.' with '-'
+X_vsd_sig_rownames <- rownames(X_vsd_sig) # Extract row names (patient IDs) from vsd
+X_vsd_sig_rownames <- sub("\\.\\d+$", "", X_vsd_sig_rownames) # Remove trailing ".01"
+X_vsd_sig_rownames <- gsub("\\.", "-", X_vsd_sig_rownames) # Replace '.' with '-'
 
 # Update column names in the vsd object
-rownames(X_vsd) <- vsd_rownames
+rownames(X_vsd_sig) <- X_vsd_sig_rownames
 
-# Now do similar preproccessing for the patient data.
+##
+## Preprocessing for Y
+##
 # Set the PATIENT_ID column as the rownames
-Y_patient <- NULL
 Y_patient <- data.frame(
   patient_id = data_patient$PATIENT_ID,
   time = data_patient$OS_MONTHS,
@@ -367,59 +369,80 @@ Y_patient <- Y_patient[Y_patient$time > 0,]
 Y_patient$status <- ifelse(Y_patient$status == "1:DECEASED", 1, 
                            ifelse(Y_patient$status == "0:LIVING", 0, NA))
 
+##
+## Match X and Y
+##
 # The patients in each dataset don't match perfectly;
-# Find the common rownames between X_vsd and Y_patient
-common_rownames <- intersect(rownames(X_vsd), rownames(Y_patient))
+# Find the common rownames between X_vsd_sig and Y_patient
+common_rownames <- intersect(rownames(X_vsd_sig), rownames(Y_patient))
 
-# Subset X_vsd and Y_patient to only include rows with common rownames
-X_vsd <- X_vsd[common_rownames, , drop = FALSE]
+# Subset X_vsd_sig and Y_patient to only include rows with common rownames
+X <- X_vsd_sig[common_rownames, , drop = FALSE]
 Y_patient <- Y_patient[common_rownames, , drop = FALSE]
-Y_surv <- Surv(time = Y_patient$time, event = Y_patient$status)
+Y <- Surv(time = Y_patient$time, event = Y_patient$status)
 
 
-de_fit <- glmnet(X_vsd, Y_surv, family = "cox")
-plot(de_fit)
+##
+## Split training and test data
+##
+# Set seed for reproducibility
+set.seed(1234)
+
+# Get the indices for the training set (80% of the data)
+train_ind <- sample(1:nrow(X), size = floor(0.8 * nrow(X)))
+
+# Split X into training and test sets
+X_train <- X[train_ind, , drop = FALSE]
+X_test <- X[-train_ind, , drop = FALSE]
+
+# Split Y into training and test sets
+Y_train <- Y[train_ind]
+Y_test <- Y[-train_ind]
+
+# Confirm the dimensions
+cat("Training set: ", nrow(X_train), "patients\n")
+cat("Test set: ", nrow(X_test), "patients\n")
 
 
-set.seed(1)
-de_cvfit <- cv.glmnet(X_vsd, Y_surv, family = "cox", type.measure = "C")
-plot(de_cvfit)
+# Its slow! Let's paralelise it.
+library(doParallel)
+cl <- makeCluster(workers)
+registerDoParallel(cl)
+
+fit <- glmnet(X_train, Y_train, family = "cox", parallel = TRUE)
+plot(fit)
+cvfit <- cv.glmnet(X_train, Y_train, family = "cox", type.measure = "C", parallel = TRUE)
+plot(cvfit)
+
+# Stop the parelel stuff.
+stopCluster(cl)
 
 
+# Split patients into groups (e.g., high/low risk) based on scores
+library(survminer)
+# Generate risk scores for the test set
+risk_scores <- predict(cvfit, newx = X_test, s = "lambda.min")
 
+# Split patients into high/low risk groups based on risk scores
+risk_group <- ifelse(risk_scores > median(risk_scores), "High Risk", "Low Risk")
 
-#### TOP GENES
-# Extract the rownames (gene IDs) of significant genes
-sig_genes <- rownames(res_sig)
+# Create the survival object using the test set
+surv_obj <- Surv(Y_test[, 1], Y_test[, 2])
+dat_test <- data.frame(
+  time = Y_test[, "time"], 
+  status = Y_test[, "status"], 
+  risk_group = ifelse(risk_scores > median(risk_scores), "High Risk", "Low Risk")
+)
 
-# Subset the vst matrix for only significant genes
-vsd_matrix_sig <- vsd_matrix[sig_genes, ]
+# Fit a survival curve using the test data
+fit <- survfit(Surv(time, status) ~ risk_group, data = dat_test)
 
-# Transpose the matrix to have patients as rows and genes as columns
-X_vsd_sig <- t(vsd_matrix_sig)
-
-# Standardise IDs in the vsd dataset
-vsd_sig_rownames <- rownames(X_vsd_sig) # Extract row names (patient IDs) from vsd
-vsd_sig_rownames <- sub("\\.\\d+$", "", vsd_sig_rownames) # Remove trailing ".01"
-vsd_sig_rownames <- gsub("\\.", "-", vsd_sig_rownames) # Replace '.' with '-'
-
-# Update column names in the vsd object
-rownames(X_vsd_sig) <- vsd_sig_rownames
-X_vsd_sig <- X_vsd_sig[common_rownames, , drop = FALSE]
-
-de_sig_fit <- glmnet(X_vsd_sig, Y_surv, family = "cox")
-plot(de_sig_fit)
-
-
-set.seed(1)
-de_sig_cvfit <- cv.glmnet(X_vsd_sig, Y_surv, family = "cox", type.measure = "C")
-plot(de_sig_cvfit)
-
-# Optimal lambda
-best_lambda <- de_sig_cvfit$lambda.min
-
-# Coefficients at optimal lambda
-coef(de_sig_cvfit, s = "lambda.min")
-
-plot(survival::survfit(de_sig_fit, s = 0.05, x = X_vsd_sig, y = Y_surv))
-
+# Plot the survival curve
+ggsurvplot(
+  fit, 
+  data = dat_test, 
+  conf.int = TRUE, 
+  # risk.table = TRUE, 
+  title = "Survival Analysis by ERBB2+ Differential Gene Expression", 
+  xlab = "Time (Months)"
+)
