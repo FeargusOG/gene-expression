@@ -17,14 +17,14 @@ library(ggplot2)
 
 # 3. Read the RNA-seq file: data_mrna_seq_v2_rsem.txt
 data_rnaseq <- read.delim("brca_tcga_pan_can_atlas_2018/data_mrna_seq_v2_rsem.txt")
-print(data_rnaseq[5,5])
+
 # 4. Read the Patient Data file: data_clinical_patient.txt
 ## Skip first 4 rows as they don't contain observations.
 data_patient <- read.delim("brca_tcga_pan_can_atlas_2018/data_clinical_patient.txt", skip = 4)
-print(head(data_patient))
+
 # 5. Read the Copy Number Aberrations Data: data_cna.txt
 data_cna <- read.delim("brca_tcga_pan_can_atlas_2018/data_cna.txt")
-print(head(data_cna))
+
 # 6. Match the RNA-seq patient ids with the CNA ids and the Patient Data ids.
 
 ## In both data_rnaseq and data_cna the patient IDs are formatte with dots:
@@ -423,11 +423,6 @@ library(survminer)
 # Generate risk scores for the test set
 risk_scores <- predict(cvfit, newx = X_test, s = "lambda.min")
 
-# Split patients into high/low risk groups based on risk scores
-risk_group <- ifelse(risk_scores > median(risk_scores), "High Risk", "Low Risk")
-
-# Create the survival object using the test set
-surv_obj <- Surv(Y_test[, 1], Y_test[, 2])
 dat_test <- data.frame(
   time = Y_test[, "time"], 
   status = Y_test[, "status"], 
@@ -435,14 +430,64 @@ dat_test <- data.frame(
 )
 
 # Fit a survival curve using the test data
-fit <- survfit(Surv(time, status) ~ risk_group, data = dat_test)
+s_fit <- survfit(Surv(time, status) ~ risk_group, data = dat_test)
 
 # Plot the survival curve
 ggsurvplot(
-  fit, 
+  s_fit, 
   data = dat_test, 
   conf.int = TRUE, 
   # risk.table = TRUE, 
   title = "Survival Analysis by ERBB2+ Differential Gene Expression", 
   xlab = "Time (Months)"
 )
+
+
+### ERBB2+/- Survival Model
+# Transpose the matrix to have patients as rows and genes as columns
+transpose_erbb2_cna <- t(erbb2_cna)
+
+# Standardise IDs in the transpose_erbb2_cna dataset
+transpose_erbb2_cna_rownames <- rownames(transpose_erbb2_cna) # Extract row names (patient IDs)
+transpose_erbb2_cna_rownames <- sub("\\.\\d+$", "", transpose_erbb2_cna_rownames) # Remove trailing ".01"
+transpose_erbb2_cna_rownames <- gsub("\\.", "-", transpose_erbb2_cna_rownames) # Replace '.' with '-'
+
+# Update rownames in the transpose_erbb2_cna object
+rownames(transpose_erbb2_cna) <- transpose_erbb2_cna_rownames
+
+# Merge Y_patient and transpose_erbb2_cna by patient ID (rownames)
+Y_erbb2_amp <- merge(Y_patient, transpose_erbb2_cna, by = "row.names", all = FALSE)
+
+# Set the merged rownames to match the patient IDs
+rownames(Y_erbb2_amp) <- Y_erbb2_amp$Row.names
+Y_erbb2_amp$Row.names <- NULL
+
+# Ensure time and status columns are numeric
+Y_erbb2_amp$time <- as.numeric(Y_erbb2_amp$time)  # Ensure time is numeric
+Y_erbb2_amp$status <- as.numeric(Y_erbb2_amp$status)  # Ensure status is numeric (1 = event, 0 = censored)
+
+# Create the erbb2_amp column as a binary categorical variable
+dat_test_erbb2 <- data.frame(
+  time = Y_erbb2_amp[, "time"], 
+  status = Y_erbb2_amp[, "status"], 
+  erbb2_amp = ifelse(Y_erbb2_amp[, "ERBB2"] > 0, "ERBB2+", "ERBB2-")  # Create binary column
+)
+
+# Fit a survival curve using the test data
+s_fit <- survfit(Surv(time, status) ~ erbb2_amp, data = dat_test_erbb2)
+
+# Plot the survival curve
+ggsurvplot(
+  s_fit, 
+  data = dat_test_erbb2, 
+  conf.int = TRUE, 
+  # risk.table = TRUE, 
+  title = "Kaplan-Meier Survival by ERBB2 Amplification",
+  xlab = "Time (Months)",
+  ylab = "Survival Probability",
+  legend.labs = c("ERBB2-", "ERBB2+"), # Customise legend labels
+  palette = c("darkblue", "red")       # Customise colours
+)
+
+
+
