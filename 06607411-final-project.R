@@ -417,6 +417,19 @@ plot(cvfit)
 # Stop the parelel stuff.
 stopCluster(cl)
 
+# Extract coefficients at the optimal lambda as a matrix
+model_genes <- coef(cvfit, s = "lambda.min")
+non_zero_genes <- as.matrix(model_genes)
+non_zero_genes <- non_zero_genes[non_zero_genes[, 1] != 0, , drop = FALSE]
+# Sort the non-zero genes by coefficient values
+sorted_genes <- non_zero_genes[order(non_zero_genes[, 1], decreasing = TRUE), , drop = FALSE]
+# Extract the top 10 genes for high risk (positive coefficients)
+top_high_risk_genes <- head(sorted_genes, 10)
+# Extract the top 10 genes for low risk (negative coefficients)
+top_low_risk_genes <- tail(sorted_genes, 10)
+print(top_high_risk_genes)
+print(top_low_risk_genes)
+
 
 # Split patients into groups (e.g., high/low risk) based on scores
 library(survminer)
@@ -442,8 +455,9 @@ ggsurvplot(
   xlab = "Time (Months)"
 )
 
-
+##
 ### ERBB2+/- Survival Model
+##
 # Transpose the matrix to have patients as rows and genes as columns
 transpose_erbb2_cna <- t(erbb2_cna)
 
