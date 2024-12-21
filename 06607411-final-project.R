@@ -47,6 +47,65 @@ erbb2_cna <- data_cna[data_cna$Hugo_Symbol == "ERBB2", ] |>
   dplyr::select(-Hugo_Symbol, -Entrez_Gene_Id)
 rownames(erbb2_cna) <- "ERBB2"
 
+## Let's do the same for FGFR2, FGFR3 and FGFR4
+fgfr2_cna <- data_cna[data_cna$Hugo_Symbol == "FGFR2", ] |>
+  dplyr::select(-Hugo_Symbol, -Entrez_Gene_Id)
+rownames(fgfr2_cna) <- "FGFR2"
+
+fgfr3_cna <- data_cna[data_cna$Hugo_Symbol == "FGFR3", ] |>
+  dplyr::select(-Hugo_Symbol, -Entrez_Gene_Id)
+rownames(fgfr3_cna) <- "FGFR3"
+
+fgfr4_cna <- data_cna[data_cna$Hugo_Symbol == "FGFR4", ] |>
+  dplyr::select(-Hugo_Symbol, -Entrez_Gene_Id)
+rownames(fgfr4_cna) <- "FGFR4"
+
+
+# Define amplification threshold
+amplification_threshold <- 0
+
+# Identify ERBB2+ and ERBB2- patients
+erbb2_positive <- colnames(erbb2_cna)[erbb2_cna[1, ] > amplification_threshold]
+erbb2_negative <- colnames(erbb2_cna)[erbb2_cna[1, ] <= amplification_threshold]
+
+# Check FGFR amplifications in ERBB2+ and ERBB2- patients
+fgfr2_amplified_in_erbb2_pos <- fgfr2_cna[1, erbb2_positive] > amplification_threshold
+fgfr3_amplified_in_erbb2_pos <- fgfr3_cna[1, erbb2_positive] > amplification_threshold
+fgfr4_amplified_in_erbb2_pos <- fgfr4_cna[1, erbb2_positive] > amplification_threshold
+
+fgfr2_amplified_in_erbb2_neg <- fgfr2_cna[1, erbb2_negative] > amplification_threshold
+fgfr3_amplified_in_erbb2_neg <- fgfr3_cna[1, erbb2_negative] > amplification_threshold
+fgfr4_amplified_in_erbb2_neg <- fgfr4_cna[1, erbb2_negative] > amplification_threshold
+
+# Create contingency tables for FGFR2
+fgfr2_table <- table(
+  ERBB2 = c(rep("Positive", length(erbb2_positive)), rep("Negative", length(erbb2_negative))),
+  FGFR2 = c(fgfr2_amplified_in_erbb2_pos, fgfr2_amplified_in_erbb2_neg)
+)
+print(fgfr2_table)
+# Perform Fisher's Exact Test for FGFR2
+fisher_test_fgfr2 <- fisher.test(fgfr2_table)
+print(fisher_test_fgfr2)
+
+# Repeat for FGFR3
+fgfr3_table <- table(
+  ERBB2 = c(rep("Positive", length(erbb2_positive)), rep("Negative", length(erbb2_negative))),
+  FGFR3 = c(fgfr3_amplified_in_erbb2_pos, fgfr3_amplified_in_erbb2_neg)
+)
+print(fgfr3_table)
+fisher_test_fgfr3 <- fisher.test(fgfr3_table)
+print(fisher_test_fgfr3)
+
+# Repeat for FGFR4
+fgfr4_table <- table(
+  ERBB2 = c(rep("Positive", length(erbb2_positive)), rep("Negative", length(erbb2_negative))),
+  FGFR4 = c(fgfr4_amplified_in_erbb2_pos, fgfr4_amplified_in_erbb2_neg)
+)
+print(fgfr4_table)
+fisher_test_fgfr4 <- fisher.test(fgfr4_table)
+print(fisher_test_fgfr4)
+
+
 ## Print the counts of each ERBB2 value.
 ##   - ERBB2 <= 0 (Not Amplified)
 ##   - ERBB2 > 0 (Amplified)
@@ -65,7 +124,7 @@ for (i in seq_len(ncol(assay))) {
   patient_col <- erbb2_cna |> 
     dplyr::select(colnames(assay)[i])
   ## Check the ERBB2 amplification level (greater than 0 is amplified)
-  metadata[i, 1] <- ifelse(as.numeric(patient_col[1,1]) > 0, 1, 0)
+  metadata[i, 1] <- ifelse(as.numeric(patient_col[1,1]) > amplification_threshold, 1, 0)
 }
 
 ## Replace NA values in metadata with 0
@@ -112,6 +171,8 @@ workers <- max(1, parallel::detectCores() - 2)
 register(MulticoreParam(workers = workers))
 dds <- DESeq(dds, parallel = TRUE)
 res <- results(dds)
+res_df <- as.data.frame(res)
+
 
 # 9. Obtain Differentially Expressed Genes
 ## Display top 10 differentially expressed genes by Fold Change.
@@ -227,6 +288,15 @@ reactome_results_under =  enrichPathway(
   gene          = gene_entrez_under[,2],
   qvalueCutoff  = SIGNIFICANCE_LEVEL,
 )
+
+reactome_results <- enrichPathway(
+  gene          = gene_entrez_over[,2],
+  qvalueCutoff  = SIGNIFICANCE_LEVEL,
+  readable      = TRUE # Makes results more interpretable
+)
+head(as.data.frame(reactome_results))
+dotplot(reactome_results, showCategory=10) + 
+  ggtitle("Reactome Pathway Enrichment Over Expressed")
 
 print(head(reactome_results_over))
 print(head(reactome_results_under))
@@ -424,23 +494,122 @@ non_zero_genes <- non_zero_genes[non_zero_genes[, 1] != 0, , drop = FALSE]
 # Sort the non-zero genes by coefficient values
 sorted_genes <- non_zero_genes[order(non_zero_genes[, 1], decreasing = TRUE), , drop = FALSE]
 # Extract the top 10 genes for high risk (positive coefficients)
-top_high_risk_genes <- head(sorted_genes, 10)
+top_high_risk_genes <- head(sorted_genes, 20)
 # Extract the top 10 genes for low risk (negative coefficients)
-top_low_risk_genes <- tail(sorted_genes, 10)
+top_low_risk_genes <- tail(sorted_genes, 20)
 print(top_high_risk_genes)
 print(top_low_risk_genes)
+
+# Define the list of genes to check
+xu_genes <- c("ACTR6", "C2orf76", "DIO2", "DCXR", "NDUFA8", "SULT1A2", "AQP3")
+
+# Subset the matrix to include only rows matching the xu_genes
+matching_genes <- xu_genes %in% rownames(non_zero_genes)
+
+# Print the results
+print(matching_genes)
+
+
+gene_coefficients <- as.vector(non_zero_genes)
+names(gene_coefficients) <- rownames(non_zero_genes)
+
+# Split into risk and protective groups
+risk_genes <- names(gene_coefficients[gene_coefficients > 0])
+protective_genes <- names(gene_coefficients[gene_coefficients < 0])
+
+# Check the counts
+cat("Number of Risk Genes: ", length(risk_genes), "\n")
+cat("Number of Protective Genes: ", length(protective_genes), "\n")
+
+## Gene Ontology (GO) enrichment analysis - Risk Genes
+go_results_risk = enrichGO(
+  gene          = risk_genes,
+  OrgDb         = org.Hs.eg.db,
+  keyType       = "SYMBOL",
+  ont           = "BP" # Biological Process
+)
+
+## Gene Ontology (GO) enrichment analysis - Protective Genes
+go_results_protect = enrichGO(
+  gene          = protective_genes,
+  OrgDb         = org.Hs.eg.db,
+  keyType       = "SYMBOL",  
+  ont           = "BP"
+)
+
+print(go_results_risk)
+
+dotplot(go_results_risk) + 
+  ggtitle("Gene Ontology Enrichment - Risk")
+
+dotplot(go_results_protect) + 
+  ggtitle("Gene Ontology Enrichment - Protective")
+
+
+gene_entrez_risk <- bitr(
+  risk_genes,
+  fromType = "SYMBOL",
+  toType   = "ENTREZID",
+  OrgDb    = org.Hs.eg.db
+)
+
+gene_entrez_protect <- bitr(
+  protective_genes,
+  fromType = "SYMBOL",
+  toType   = "ENTREZID",
+  OrgDb    = org.Hs.eg.db
+)
+
+### defaults to 'hsa' for organism i.e. home sapien
+kegg_results_risk =  enrichKEGG(
+  gene          = gene_entrez_risk[,2]
+)
+
+kegg_results_protect =  enrichKEGG(
+  gene          = gene_entrez_protect[,2]
+)
+
+print(head(kegg_results_risk))
+print(head(kegg_results_protect))
+
+dotplot(kegg_results_risk) + 
+  ggtitle("Kegg Pathway Enrichment Risk")
+dotplot(kegg_results_protect) + 
+  ggtitle("Kegg Pathway Enrichment Protect")
+
+
+### defaults to 'human' for organism
+reactome_results_risk =  enrichPathway(
+  gene          = gene_entrez_risk[,2]
+)
+
+reactome_results_protect =  enrichPathway(
+  gene          = gene_entrez_protect[,2]
+)
+
+print(head(reactome_results_risk))
+print(head(reactome_results_protect))
+
+### Plot results of Reactome pathway enrichment analysis
+dotplot(reactome_results_risk, showCategory=10) + 
+  ggtitle("Reactome Pathway Enrichment Risk")
+dotplot(reactome_results_protect, showCategory=10) + 
+  ggtitle("Reactome Pathway Enrichment Protect")
+
 
 
 # Split patients into groups (e.g., high/low risk) based on scores
 library(survminer)
 # Generate risk scores for the test set
 risk_scores <- predict(cvfit, newx = X_test, s = "lambda.min")
+risk_scores <- as.numeric(risk_scores[, 1])  # Extract the first (and only) column as a numeric vector
 
 dat_test <- data.frame(
   time = Y_test[, "time"], 
   status = Y_test[, "status"], 
   risk_group = ifelse(risk_scores > median(risk_scores), "High Risk", "Low Risk")
 )
+
 
 # Fit a survival curve using the test data
 s_fit <- survfit(Surv(time, status) ~ risk_group, data = dat_test)
@@ -455,53 +624,100 @@ ggsurvplot(
   xlab = "Time (Months)"
 )
 
+
+###
+### Replicate Xu. et al.
+###
+
+# I din't find any of their genes being used by my model... lets runs the
+# survival analysis again with their genes to see if I find them predictive.
+
+xu_genes <- c("ACTR6", "C2orf76", "DIO2", "DCXR", "NDUFA8", "SULT1A2", "AQP3")
+vst_xu <- vsd_matrix[xu_genes, ]
+X_vst_xu <- t(vst_xu)
+X_vsd_xu_rownames <- rownames(X_vst_xu) # Extract row names (patient IDs) from vsd
+X_vsd_xu_rownames <- sub("\\.\\d+$", "", X_vsd_xu_rownames) # Remove trailing ".01"
+X_vsd_xu_rownames <- gsub("\\.", "-", X_vsd_xu_rownames) # Replace '.' with '-'
+
+# Update column names in the vsd object
+rownames(X_vst_xu) <- X_vsd_xu_rownames
+
+common_rownames_xu <- intersect(rownames(X_vst_xu), rownames(Y_patient))
+X_xu_subset <- X_vst_xu[common_rownames_xu, , drop = FALSE]
+Y_xu_subset <- Y_patient[common_rownames_xu, , drop = FALSE]
+Y_xu_subset <- Surv(time = Y_xu_subset$time, event = Y_xu_subset$status)
+
 ##
-### ERBB2+/- Survival Model
+## Split training and test data
 ##
-# Transpose the matrix to have patients as rows and genes as columns
-transpose_erbb2_cna <- t(erbb2_cna)
+# Set seed for reproducibility
+set.seed(1234)
 
-# Standardise IDs in the transpose_erbb2_cna dataset
-transpose_erbb2_cna_rownames <- rownames(transpose_erbb2_cna) # Extract row names (patient IDs)
-transpose_erbb2_cna_rownames <- sub("\\.\\d+$", "", transpose_erbb2_cna_rownames) # Remove trailing ".01"
-transpose_erbb2_cna_rownames <- gsub("\\.", "-", transpose_erbb2_cna_rownames) # Replace '.' with '-'
+# Get the indices for the training set (80% of the data)
+train_ind <- sample(1:nrow(X_xu_subset), size = floor(0.8 * nrow(X_xu_subset)))
 
-# Update rownames in the transpose_erbb2_cna object
-rownames(transpose_erbb2_cna) <- transpose_erbb2_cna_rownames
+# Split X into training and test sets
+X_train <- X_xu_subset[train_ind, , drop = FALSE]
+X_test <- X_xu_subset[-train_ind, , drop = FALSE]
 
-# Merge Y_patient and transpose_erbb2_cna by patient ID (rownames)
-Y_erbb2_amp <- merge(Y_patient, transpose_erbb2_cna, by = "row.names", all = FALSE)
+# Split Y into training and test sets
+Y_train <- Y_xu_subset[train_ind]
+Y_test <- Y_xu_subset[-train_ind]
 
-# Set the merged rownames to match the patient IDs
-rownames(Y_erbb2_amp) <- Y_erbb2_amp$Row.names
-Y_erbb2_amp$Row.names <- NULL
+# Confirm the dimensions
+cat("Training set: ", nrow(X_train), "patients\n")
+cat("Test set: ", nrow(X_test), "patients\n")
 
-# Ensure time and status columns are numeric
-Y_erbb2_amp$time <- as.numeric(Y_erbb2_amp$time)  # Ensure time is numeric
-Y_erbb2_amp$status <- as.numeric(Y_erbb2_amp$status)  # Ensure status is numeric (1 = event, 0 = censored)
 
-# Create the erbb2_amp column as a binary categorical variable
-dat_test_erbb2 <- data.frame(
-  time = Y_erbb2_amp[, "time"], 
-  status = Y_erbb2_amp[, "status"], 
-  erbb2_amp = ifelse(Y_erbb2_amp[, "ERBB2"] > 0, "ERBB2+", "ERBB2-")  # Create binary column
+# Its slow! Let's paralelise it.
+library(doParallel)
+cl <- makeCluster(workers)
+registerDoParallel(cl)
+
+fit <- glmnet(X_train, Y_train, family = "cox", parallel = TRUE)
+plot(fit)
+cvfit <- cv.glmnet(X_train, Y_train, family = "cox", type.measure = "C", parallel = TRUE)
+plot(cvfit) # THIS MODEL IS ABOUT 0.51! Basically random chance.
+
+# Stop the parelel stuff.
+stopCluster(cl)
+
+# Extract coefficients at the optimal lambda as a matrix
+model_genes <- coef(cvfit, s = "lambda.min")
+non_zero_genes <- as.matrix(model_genes)
+non_zero_genes <- non_zero_genes[non_zero_genes[, 1] != 0, , drop = FALSE]
+# Sort the non-zero genes by coefficient values
+sorted_genes <- non_zero_genes[order(non_zero_genes[, 1], decreasing = TRUE), , drop = FALSE]
+# Extract the top 10 genes for high risk (positive coefficients)
+top_high_risk_genes <- head(sorted_genes, 10)
+# Extract the top 10 genes for low risk (negative coefficients)
+top_low_risk_genes <- tail(sorted_genes, 10)
+print(top_high_risk_genes)
+print(top_low_risk_genes)
+
+
+# Split patients into groups (e.g., high/low risk) based on scores
+library(survminer)
+# Generate risk scores for the test set
+risk_scores <- predict(cvfit, newx = X_test, s = "lambda.min")
+risk_scores <- as.numeric(risk_scores[, 1])  # Extract the first (and only) column as a numeric vector
+
+dat_test <- data.frame(
+  time = Y_test[, "time"], 
+  status = Y_test[, "status"], 
+  risk_group = ifelse(risk_scores > median(risk_scores), "High Risk", "Low Risk")
 )
 
+
 # Fit a survival curve using the test data
-s_fit <- survfit(Surv(time, status) ~ erbb2_amp, data = dat_test_erbb2)
+s_fit <- survfit(Surv(time, status) ~ risk_group, data = dat_test)
 
 # Plot the survival curve
 ggsurvplot(
   s_fit, 
-  data = dat_test_erbb2, 
+  data = dat_test, 
   conf.int = TRUE, 
   # risk.table = TRUE, 
-  title = "Kaplan-Meier Survival by ERBB2 Amplification",
-  xlab = "Time (Months)",
-  ylab = "Survival Probability",
-  legend.labs = c("ERBB2-", "ERBB2+"), # Customise legend labels
-  palette = c("darkblue", "red")       # Customise colours
+  title = "Survival Analysis by ERBB2+ Differential Gene Expression", 
+  xlab = "Time (Months)"
 )
-
-
-
