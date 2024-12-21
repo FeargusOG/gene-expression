@@ -27,12 +27,6 @@ data_cna <- read.delim("brca_tcga_pan_can_atlas_2018/data_cna.txt")
 
 # 6. Match the RNA-seq patient ids with the CNA ids and the Patient Data ids.
 
-## In both data_rnaseq and data_cna the patient IDs are formatte with dots:
-##   - TCGA.A2.A0D3.01
-## Whereas, in data_patient, they are formatted with dashes:
-##   - TCGA-A2-A0D3
-## TBD!!! Not sure about the .01, or whether I even need to match them here...
-
 # 7. Create metadata using the CNA level of ERBB2+
 ## The patients contained in RNASeq and CNA datasets don't match fully; because
 ## we want to examine the relationship between patients in these two datasets,
