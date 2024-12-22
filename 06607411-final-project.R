@@ -591,7 +591,6 @@ dotplot(reactome_results_protect, showCategory=10) +
   ggtitle("Reactome Pathway Enrichment Protect")
 
 
-
 # Split patients into groups (e.g., high/low risk) based on scores
 library(survminer)
 # Generate risk scores for the test set

@@ -12,12 +12,13 @@ print_banner <- function(section_name) {
   cat(strrep("=", 50), "\n\n")
 }
 
+get_worker_count <- function() {
+  ## Use 1 less cores than the total, but ensure at least 1 worker
+  return(max(1, parallel::detectCores() - 1))
+}
 
 # Define amplification threshold
 amplification_threshold <- 0
-
-# Define ERBB2 Amplification column name
-ERBB2_Amp_Col <- "ERBB2_Amp"
 
 # Define the standard significnce threshold
 SIGNIFICANCE_LEVEL <- 0.05
