@@ -91,7 +91,7 @@ source("R/04_pca_heatmap.R")
 print_banner("Cox Regression Survival Model...")
 source("R/05_cox_regress.R")
 
-X_Y <- prepare_cox_reg_x_y(vsd, data_patient, degs$significant)
+X_Y <- prepare_cox_reg_x_y(vsd, data$patient, degs$significant)
 
 X_Y_split <- split_training_data(X_Y$X, X_Y$Y)
 
@@ -157,7 +157,7 @@ print(matching_genes)
 
 # I din't find any of their genes being used by my model... lets runs the
 # survival analysis again with their genes to see if I find them predictive.
-Xu_X_Y <- prepare_cox_reg_x_y(vsd, data_patient, xu_genes)
+Xu_X_Y <- prepare_cox_reg_x_y(vsd, data$patient, xu_genes)
 Xu_X_Y_split <- split_training_data(Xu_X_Y$X, Xu_X_Y$Y)
 
 # The model is no good! Basically 0.5 i.e. random chance...
@@ -172,8 +172,8 @@ print_banner("FGFR Investigation...")
 # Process CNA amplifications and generate contingency table and Fisher's test
 process_cna_comparison <- function(data_cna, reference_gene, target_gene, amp_thresh) {
   # Process the CNA data for both the reference and target genes
-  cna_reference <- process_cna_gene(data_cna, reference_gene)
-  cna_target <- process_cna_gene(data_cna, target_gene)
+  cna_reference <- extract_cna_gene(data_cna, reference_gene)
+  cna_target <- extract_cna_gene(data_cna, target_gene)
   
   # Identify reference gene positive and negative patients
   reference_positive <- colnames(cna_reference)[cna_reference[1, ] > amp_thresh]
@@ -198,8 +198,7 @@ process_cna_comparison <- function(data_cna, reference_gene, target_gene, amp_th
   print(fisher_test)
 }
 
-# Example usage
-process_cna_comparison(data_cna, "ERBB2", "FGFR2", amplification_threshold)
-process_cna_comparison(data_cna, "ERBB2", "FGFR3", amplification_threshold)
-process_cna_comparison(data_cna, "ERBB2", "FGFR4", amplification_threshold)
+process_cna_comparison(data$cna, "ERBB2", "FGFR2", amplification_threshold)
+process_cna_comparison(data$cna, "ERBB2", "FGFR3", amplification_threshold)
+process_cna_comparison(data$cna, "ERBB2", "FGFR4", amplification_threshold)
 

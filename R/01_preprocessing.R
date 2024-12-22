@@ -18,7 +18,6 @@ read_data <- function(patient, rnaseq, cna) {
               cna = data_cna))
 }
 
-
 create_amp_metadata <- function(data_rnaseq, data_cna, gene, amp_thresh = 0.05) {
   cna_extracted_gene <- extract_cna_gene(data_cna, gene)
 

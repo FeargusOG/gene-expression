@@ -27,7 +27,7 @@ degs_p_ordered <- order(dds_res$padj)
 degs_vsd_p_ordered <- assay(vsd)[degs_p_ordered[1:20],]
 
 ## Again, a factor allows the legend to be binary, not a gradient
-annotation_col <- data.frame(ERBB2_Amp = factor(as.matrix(metadata[, 1]), 
+annotation_col <- data.frame(ERBB2_Amp = factor(as.matrix(meta$data[, 1]), 
                                                 levels = ERBB2_Factor_Levels, 
                                                 labels = ERBB2_Factor_Labels))
 rownames(annotation_col) <- colnames(vsd)
